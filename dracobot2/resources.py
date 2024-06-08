@@ -105,7 +105,12 @@ WELCOME_MESSAGE = "Dear {name},\n\n\n"\
 STATUS = "Angel Status: {trainer_status}\n"\
     "Mortal Status: {dragon_status}\n"
 DRAGON_DETAILS = "Mortal Details " + DRAGON_EMOJI + "\n\n"\
-    "Name: {name}\n"
+    "Name: {name}\n\n" +\
+    "Your mortal would like to be loved through the following ways " + GIFT_EMOJI + " :\n" +\
+    "{likes}\n\n" +\
+    "Your mortal would like you to take note of the following " + SKULL_EMOJI + " :\n" +\
+    "{dislikes}\n\n" +\
+    "Room Number: {room_number}\n"
 TRAINER_DETAILS = "Trainer Details " + TRAINER_EMOJI + SPARKLE_EMOJI + "\n\n"\
     "Name: {name}\n"
 CHAT_COMPLETE = "You have finish chatting with your {}."

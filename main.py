@@ -1,3 +1,4 @@
+import datetime
 import logging
 import math
 import os
@@ -12,11 +13,13 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           ConversationHandler, MessageHandler,
                           PicklePersistence, filters)
 
+from dracobot2 import job_handlers
 from dracobot2.config import SessionLocal
 from dracobot2.models import Role, User
 from dracobot2.resources import *
 from dracobot2.utils import *
 from dracobot2.utils.msg_private import is_message_private
+from dracobot2.utils.timezone import TIMEZONE
 
 load_dotenv()
 
@@ -52,9 +55,9 @@ CHAT_TIMEOUT_SECONDS = 2 * 60
 
 
 def db_session(method):
-    async def db_session_decorator(update, context):
+    async def db_session_decorator(*args):
         session = Session()
-        return_value = await method(update, context, session)
+        return_value = await method(*args, session)
         session.close()
         return return_value
     return db_session_decorator
@@ -500,6 +503,11 @@ def main():
 
     application.add_error_handler(_error, block=False)
     application.add_handler(conv_handler)
+
+    application.job_queue.run_once(job_handlers.refresh_scheduled_message_daily, 0)
+
+    refresh_time = datetime.time(hour=0, minute=0, second=0, tzinfo=TIMEZONE)
+    application.job_queue.run_daily(job_handlers.refresh_scheduled_message_daily, refresh_time)
 
     # Start the Bot
     application.run_polling()

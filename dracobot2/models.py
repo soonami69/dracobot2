@@ -1,8 +1,10 @@
 import enum
-from sqlalchemy.types import Enum
-from sqlalchemy.orm import relationship, backref
-from sqlalchemy import Column, Integer, String, ForeignKey, UnicodeText, Boolean
+
+from sqlalchemy import (Boolean, Column, Date, ForeignKey, Integer, String,
+                        UnicodeText)
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import backref, relationship
+from sqlalchemy.types import Enum
 
 Base = declarative_base()
 
@@ -48,13 +50,22 @@ class UserDetails(Base):
 class MessageMapping(Base):
     __tablename__ = 'message_mapping'
 
-    sender_message_id = Column(
-        Integer, primary_key=True, autoincrement=False, nullable=False)
-    sender_chat_id = Column(Integer, primary_key=True,
-                            autoincrement=False, nullable=False)
+    sender_message_id = Column(Integer, nullable=True)
+    sender_chat_id = Column(Integer, nullable=True)
     receiver_message_id = Column(Integer, primary_key=True, nullable=False)
     receiver_chat_id = Column(Integer, primary_key=True, nullable=False)
     receiver_caption_message_id = Column(Integer, nullable=True)
     deleted = Column(Boolean, nullable=False,
                      default=False, server_default="0")
     message_from = Column(Enum(Role), nullable=False)
+
+
+class DailyScheduledMessage(Base):
+    __tablename__ = 'daily_scheduled_message'
+
+    id = Column(Integer, primary_key=True)
+    scheduled_time_hour_24h = Column(Integer, nullable=False)
+    scheduled_time_minute = Column(Integer, nullable=False)
+    message = Column(Integer, nullable=False)
+    active_from = Column(Date, nullable=False)
+    active_to = Column(Date, nullable=False)

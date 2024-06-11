@@ -95,11 +95,11 @@ async def refresh_scheduled_message_daily(context: ContextTypes.DEFAULT_TYPE, se
     to_remove = active_job_keys - scheduled_times
 
     for time in to_add:
-        print("Scheduled trigger at {}:{} {}".format(time[0], time[1], TIMEZONE))
+        print("Scheduled trigger at {:02d}:{:02d} {}".format(time[0], time[1], TIMEZONE))
         job = enqueue_time(context, time)
         active_jobs_by_time[time] = job
 
     for time in to_remove:
-        print("Removed trigger at {}:{} {}".format(time[0], time[1], TIMEZONE))
+        print("Removed trigger at {:02d}:{:02d} {}".format(time[0], time[1], TIMEZONE))
         active_jobs_by_time[time].schedule_removal()
         del active_jobs_by_time[time]

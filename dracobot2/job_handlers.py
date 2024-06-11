@@ -1,6 +1,7 @@
 import datetime
 from typing import Tuple
 
+import telegram
 from sqlalchemy import and_
 from telegram.ext import ContextTypes
 
@@ -39,7 +40,7 @@ def execute_jobs_at_time_handler(time: Tuple[int, int]):
 
             for to_send_user in all_users:
                 sent_msg = await context.bot.send_message(
-                    chat_id=to_send_user.chat_id, text=formatted_message
+                    chat_id=to_send_user.chat_id, text=formatted_message, parse_mode=telegram.constants.ParseMode.MARKDOWN_V2
                 )
                 mapping = MessageMapping(
                     sender_message_id=None,

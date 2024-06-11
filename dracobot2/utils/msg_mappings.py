@@ -97,7 +97,7 @@ async def forward_message(message, chat_id, bot, session, message_from=Role.DRAG
             chat_id=chat_id, text=caption_style_text, reply_to_message_id=sent_msg.message_id)
     else:
         sent_msg = await bot.send_message(chat_id=chat_id, text=format_message(
-            message.text, message_from=message_from, is_prefix=True), reply_to_message_id=reply_to_message_id)
+            message.text_markdown_v2, message_from=message_from, is_prefix=True), reply_to_message_id=reply_to_message_id, parse_mode=telegram.constants.ParseMode.MARKDOWN_V2)
 
     mapping = MessageMapping(sender_message_id=message.message_id, sender_chat_id=message.chat_id,
                              receiver_message_id=sent_msg.message_id, receiver_chat_id=sent_msg.chat_id, message_from=message_from)

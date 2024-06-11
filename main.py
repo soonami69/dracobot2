@@ -504,10 +504,10 @@ def main():
     application.add_error_handler(_error, block=False)
     application.add_handler(conv_handler)
 
-    application.job_queue.run_once(job_handlers.refresh_scheduled_message_daily, 0)
+    application.job_queue.run_once(job_handlers.refresh_scheduled_message_daily, 0, job_kwargs={"misfire_grace_time": None})
 
     refresh_time = datetime.time(hour=0, minute=0, second=0, tzinfo=TIMEZONE)
-    application.job_queue.run_daily(job_handlers.refresh_scheduled_message_daily, refresh_time)
+    application.job_queue.run_daily(job_handlers.refresh_scheduled_message_daily, refresh_time, job_kwargs={"misfire_grace_time": None})
 
     # Start the Bot
     application.run_polling()

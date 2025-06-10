@@ -21,6 +21,12 @@
     $ source venv/bin/activate
     ```
 
+    For Windows:
+
+    ```
+    venv\Scripts\activate.bat
+    ```
+
 3.  Update pip to latest version
 
     ```

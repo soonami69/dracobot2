@@ -1,10 +1,41 @@
+import argparse
 import csv
+import random
 from dracobot2.config import SessionLocal
 from dracobot2.models import User, UserDetails
 
 session = SessionLocal()
 
-with open("import.csv", "r", newline='') as f:
+randomize = False
+filename = "import.csv"
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--randomize",
+    action="store_true",
+    help="Randomize angel/mortal assignments"
+)
+
+parser.add_argument("--seed", type=int)
+
+parser.add_argument(
+    "filename",
+    nargs="?",
+    default="import.csv",
+    help="CSV file to import from"
+)
+
+args = parser.parse_args()
+
+randomize = args.randomize
+
+if args.seed is not None:
+    random.seed(args.seed)
+
+filename = args.filename
+
+with open(filename, "r", newline='') as f:
     f_reader = csv.reader(f)
 
     header = next(f_reader)
@@ -49,8 +80,20 @@ with open("import.csv", "r", newline='') as f:
 
     session.commit()
 
-    for user_id in users_list:
-        user_db, dragon_id = users_list[user_id]
-        user_db.dragon = users_list[dragon_id][0]
+    if randomize:
+
+        users = [user_data[0] for user_data in users_list.values()]
+
+        shuffled_users = users[:]
+        random.shuffle(shuffled_users)
+
+        for i, user in enumerate(shuffled_users):
+            assigned_user = shuffled_users[(i + 1) % len(shuffled_users)]
+            user.dragon = assigned_user
+    
+    else:
+        for user_id in users_list:
+            user_db, dragon_id = users_list[user_id]
+            user_db.dragon = users_list[dragon_id][0]
 
     session.commit()

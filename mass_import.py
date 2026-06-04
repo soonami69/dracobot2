@@ -28,6 +28,8 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+print("Importing from", args.filename, "with random seed", args.seed, "with randomize=", args.randomize)
+
 randomize = args.randomize
 
 if args.seed is not None:
@@ -40,6 +42,13 @@ with open(filename, "r", newline='') as f:
 
     header = next(f_reader)
 
+    # helper function to prevent casting problems if field is empty
+    def safe_int(value, default=0):
+        try:
+            return int(value)
+        except Exception:
+            return default
+        
 
     def get_row_info(cur_row):
         index = int(cur_row[0])
@@ -49,9 +58,9 @@ with open(filename, "r", newline='') as f:
         dislikes = cur_row[4]
         room_number = cur_row[5]
         requests = cur_row[6]
-        level = int(cur_row[7])
-        dragon_no = int(cur_row[8])
-        is_admin = int(cur_row[9])
+        level = safe_int(cur_row[7])
+        dragon_no = safe_int(cur_row[8]) if randomize else int(cur_row[8])
+        is_admin = safe_int(cur_row[9])
         return {
             'index': index,
             'name': name,
@@ -68,8 +77,11 @@ with open(filename, "r", newline='') as f:
 
     users_list = {}
     for row in f_reader:
+        # guard for newline at end of csv
+        if not row:
+            continue
         user_obj = get_row_info(row)
-        user_db = User(id=user_obj['index'], tele_handle=user_obj['handle'])
+        user_db = User(id=user_obj['index'], tele_handle=user_obj['handle'],is_admin=user_obj["is_admin"])
         user_details_db = UserDetails(user=user_db,
                                     name=user_obj['name'],
                                     likes=user_obj['likes'],
@@ -92,6 +104,7 @@ with open(filename, "r", newline='') as f:
         for i, user in enumerate(shuffled_users):
             assigned_user = shuffled_users[(i + 1) % len(shuffled_users)]
             user.dragon = assigned_user
+            user.dragon_id = assigned_user.id
     
     else:
         for user_id in users_list:

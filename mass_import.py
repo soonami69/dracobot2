@@ -51,6 +51,7 @@ with open(filename, "r", newline='') as f:
         requests = cur_row[6]
         level = int(cur_row[7])
         dragon_no = int(cur_row[8])
+        is_admin = int(cur_row[9])
         return {
             'index': index,
             'name': name,
@@ -61,6 +62,7 @@ with open(filename, "r", newline='') as f:
             'requests': requests,
             'level': level,
             'dragon_no': dragon_no,
+            'is_admin': True if is_admin else False
         }
 
 

@@ -44,6 +44,10 @@ TRAINER_CHAT_KEY = u"Chat with Angel" + " " + TRAINER_EMOJI
 STATUS_KEY = u"Status" + " " + GREEN_STATUS_EMOJI
 HELP_KEY = u"Help" + " " + HELP_EMOJI
 RULES_KEY = u"Rules" + " " + MONKEY_EMOJI
+ABOUT_COMMAND_KEY = u"about"
+HELP_COMMAND_KEY = u"help"
+RULES_COMMAND_KEY = u"rules"
+STATUS_COMMAND_KEY = u"status"
 MENU_KEY = u"menu"
 TRAINER_KEY = u"angel"
 DRAGON_KEY = u"mortal"
@@ -54,8 +58,8 @@ DONE_KEY = u"done"
 
 # GREETINGS
 ABOUT_THE_BOT = DRAGON_EMOJI + " *About BizcomAMBot* " + DRAGON_EMOJI + "\n\n" + "Adapted from: DracoBot\n\n" + CAKE_EMOJI + " Birthday: June 2017\n\n" +\
-    ROBOT_EMOJI + " Currently maintained by Daniel Lau\n\n" + SKULL_EMOJI +\
-    " Past Bot Developers: Ji Cheng, Shao Yi, Bai Chuan, Fiz, Youkuan, Kang Ming, Zhi Yu\n\n"
+    ROBOT_EMOJI + " Currently maintained by timo soon\n\n" + SKULL_EMOJI +\
+    " Past Bot Developers: pinkykok, Daniel Lau, Ji Cheng, Shao Yi, Bai Chuan, Fiz, Youkuan, Kang Ming, Zhi Yu\n\n"
 ADMIN_GREETING = "Hello there, Administrator! What do you want to say to everyone?\n" +\
     "Whatever you submit from now on will be broadcasted to all users, be CAREFUL!\n" +\
     "Type /" + DONE_KEY + " to exit, once you have made your announcement."
@@ -63,12 +67,12 @@ HELLO_GREETING = "Hello there, {}! BizcomAMBot at your service! Press /" + \
     MENU_KEY + " to bring up keyboard! " + DRAGON_EMOJI
 HELP_MESSAGE = "Hello there, {}!\n\n" +\
     "<u>Main Menu</u>\n" +\
-    DRAGON_CHAT_KEY + ": To chat with your Mortal \n" +\
-    TRAINER_CHAT_KEY + ": To chat with your Angel\n" +\
-    HELP_KEY + ": To explore this bot's functionality\n" +\
-    STATUS_KEY + ": To view status of Angel and Mortal\n" +\
-    RULES_KEY + ": To view the game rules\n" +\
-    ABOUT_THE_BOT_KEY + ": To view information about the bot\n\n" +\
+    DRAGON_CHAT_KEY + " or /" + DRAGON_KEY + ": To chat with your Mortal \n" +\
+    TRAINER_CHAT_KEY + " or /" + TRAINER_KEY + ": To chat with your Angel\n" +\
+    HELP_KEY + " or /" + HELP_COMMAND_KEY + ": To explore this bot's functionality\n" +\
+    STATUS_KEY + " or /" + STATUS_COMMAND_KEY + ": To view status of Angel and Mortal\n" +\
+    RULES_KEY + " or /" + RULES_COMMAND_KEY + ": To view the game rules\n" +\
+    ABOUT_THE_BOT_KEY + " or /" + ABOUT_COMMAND_KEY + ": To view information about the bot\n\n" +\
     "Type /" + DONE_KEY + " at any point in time to exit the chat\n" +\
     "Type /" + MENU_KEY + " to show the Main Menu\n\n" +\
     "<u>Important Features</u>\n" +\

@@ -3,7 +3,7 @@ import logging
 import math
 import os
 import time
-import traceback
+from html import escape
 
 from dotenv import load_dotenv
 from sqlalchemy import or_
@@ -52,14 +52,125 @@ TIMEOUT = ConversationHandler.TIMEOUT
 Session = scoped_session(SessionLocal)
 
 CHAT_TIMEOUT_SECONDS = 2 * 60
+TELEGRAM_MESSAGE_MAX_LENGTH = 4096
+
+
+def get_update_log_context(update):
+    if update is None:
+        return {"update_id": None}
+
+    message = getattr(update, "effective_message", None)
+    user = getattr(update, "effective_user", None)
+    chat = getattr(update, "effective_chat", None)
+
+    return {
+        "update_id": getattr(update, "update_id", None),
+        "chat_id": chat.id if chat else None,
+        "chat_type": chat.type if chat else None,
+        "user_id": user.id if user else None,
+        "username": user.username if user else None,
+        "message_id": message.message_id if message else None,
+        "message_type": _get_message_type(message),
+        "text_preview": _get_text_preview(message),
+    }
+
+
+def _get_message_type(message):
+    if message is None:
+        return None
+
+    if message.text:
+        return "text"
+    if message.photo:
+        return "photo"
+    if message.document:
+        return "document"
+    if message.video:
+        return "video"
+    if message.audio:
+        return "audio"
+    if message.voice:
+        return "voice"
+    if message.sticker:
+        return "sticker"
+    if message.video_note:
+        return "video_note"
+    if message.caption:
+        return "caption"
+
+    return "other"
+
+
+def _get_text_preview(message, limit=80):
+    if message is None:
+        return None
+
+    text = message.text or message.caption
+    if text is None:
+        return None
+
+    text = text.replace('\n', '\\n')
+    if len(text) > limit:
+        return text[:limit] + "..."
+
+    return text
+
+
+def split_message_text(text, limit=TELEGRAM_MESSAGE_MAX_LENGTH):
+    chunks = []
+    remaining = text
+
+    while len(remaining) > limit:
+        split_at = remaining.rfind('\n', 0, limit + 1)
+        if split_at <= 0:
+            split_at = limit
+
+        chunk = remaining[:split_at].rstrip()
+        chunks.append(chunk)
+        remaining = remaining[split_at:].lstrip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return chunks
+
+
+async def reply_long_text(message, text, **kwargs):
+    chunks = split_message_text(text)
+
+    if len(chunks) > 1:
+        logger.info(
+            "Splitting long Telegram message into %s chunks | chat_id=%s message_id=%s length=%s",
+            len(chunks),
+            message.chat_id,
+            message.message_id,
+            len(text),
+        )
+
+    for chunk in chunks[:-1]:
+        await message.reply_text(chunk)
+
+    if chunks:
+        await message.reply_text(chunks[-1], **kwargs)
 
 
 def db_session(method):
     async def db_session_decorator(*args):
         session = Session()
-        return_value = await method(*args, session)
-        session.close()
-        return return_value
+        update = args[0] if args else None
+
+        try:
+            return await method(*args, session)
+        except Exception:
+            session.rollback()
+            logger.exception(
+                "Unhandled exception in %s | update=%s",
+                method.__name__,
+                get_update_log_context(update),
+            )
+            raise
+        finally:
+            session.close()
     return db_session_decorator
 
 
@@ -89,9 +200,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
         if is_new_user:
             dragon = user_db.dragon
             if dragon and dragon.details and user_db.details:
+                logger.info(
+                    "Sending new-user welcome message | user_id=%s chat_id=%s dragon_id=%s",
+                    user_db.id,
+                    chat_id,
+                    dragon.id,
+                )
                 welcome_message = WELCOME_MESSAGE.format(**{
-                    'name': user_db.details.name,
-                    'dragon_name': dragon.details.name,
+                    'name': escape(user_db.details.name or ""),
+                    'dragon_name': escape(dragon.details.name or ""),
                 })
                 messages = list(filter(lambda x: len(x) > 0, welcome_message.split('\n\n\n')))
                 for message in messages:
@@ -99,6 +216,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
                     time.sleep(math.ceil(len(message) / 40) + 1)
 
             else:
+                logger.warning(
+                    "Newly registered user is missing dragon/details for welcome message | user_id=%s chat_id=%s has_dragon=%s has_user_details=%s",
+                    user_db.id,
+                    chat_id,
+                    dragon is not None,
+                    user_db.details is not None,
+                )
                 await update.message.reply_text(USER_NO_DRAGON)
 
         session.commit()
@@ -108,9 +232,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
 
         return MAIN
     else:
+        logger.warning(
+            "Unregistered user attempted to start bot | chat_id=%s username=%s user_id=%s",
+            chat_id,
+            user.username,
+            user.id,
+        )
         await update.message.reply_text(USER_UNREGISTERED)
 
         if user.username is None:
+            logger.warning("Telegram user has no username/handle | chat_id=%s user_id=%s", chat_id, user.id)
             await update.message.reply_text(USER_NO_TELE_HANDLE)
 
         return UNREGISTERED
@@ -129,12 +260,17 @@ async def helps(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
 
     user_db = session.query(User).filter(User.chat_id == chat_id).first()
 
+    if user_db is None:
+        logger.warning("Help requested by unknown chat | chat_id=%s user_id=%s username=%s", chat_id, user.id, user.username)
+        await update.message.reply_text(USER_UNREGISTERED)
+        return UNREGISTERED
+
     first_name = user.first_name
     if user_db.details:
         first_name = user_db.details.name
 
     await update.message.reply_text(HELP_MESSAGE.format(
-        first_name), parse_mode=telegram.constants.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
+        escape(first_name or "")), parse_mode=telegram.constants.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
 
     return MAIN
 
@@ -149,6 +285,11 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     cur_user = session.query(User).filter(User.chat_id == chat_id).first()
+
+    if cur_user is None:
+        logger.warning("Status requested by unknown chat | chat_id=%s", chat_id)
+        await update.message.reply_text(USER_UNREGISTERED)
+        return UNREGISTERED
 
     trainer = session.query(User).filter(User.dragon_id == cur_user.id).first()
     dragon = session.query(User).filter(User.id == cur_user.dragon_id).first()
@@ -185,7 +326,15 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     if dragon_details is not None:
         message += '\n' + DRAGON_DETAILS.format(**dragon_details)
 
-    await update.message.reply_text(message, **DEFAULT_REPLY_MARKUP)
+    logger.info(
+        "Status requested | user_id=%s chat_id=%s trainer_id=%s dragon_id=%s status_length=%s",
+        cur_user.id,
+        chat_id,
+        trainer.id if trainer else None,
+        dragon.id if dragon else None,
+        len(message),
+    )
+    await reply_long_text(update.message, message, **DEFAULT_REPLY_MARKUP)
 
     return MAIN
 
@@ -193,15 +342,28 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
 @db_session
 async def check_trainer(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
-    cur_user_id = session.query(User).filter(
-        User.chat_id == chat_id).first().id
+    cur_user = session.query(User).filter(User.chat_id == chat_id).first()
+
+    if cur_user is None:
+        logger.warning("Trainer chat requested by unknown chat | chat_id=%s", chat_id)
+        await update.message.reply_text(USER_UNREGISTERED, **DEFAULT_REPLY_MARKUP)
+        return END
+
+    cur_user_id = cur_user.id
 
     trainer = session.query(User).filter(User.dragon_id == cur_user_id).first()
 
     if trainer is None:
+        logger.warning("Trainer chat requested but no trainer assigned | user_id=%s chat_id=%s", cur_user.id, chat_id)
         await update.message.reply_text(USER_NO_TRAINER, **DEFAULT_REPLY_MARKUP)
         return END
     elif not trainer.registered:
+        logger.info(
+            "Trainer chat requested but trainer is unregistered | user_id=%s trainer_id=%s chat_id=%s",
+            cur_user.id,
+            trainer.id,
+            chat_id,
+        )
         await update.message.reply_text(
             USER_UNREGISTERED_TRAINER, **DEFAULT_REPLY_MARKUP)
         return END
@@ -214,15 +376,28 @@ async def check_trainer(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
 @db_session
 async def check_dragon(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
-    dragon_id = session.query(User).filter(
-        User.chat_id == chat_id).first().dragon_id
+    cur_user = session.query(User).filter(User.chat_id == chat_id).first()
+
+    if cur_user is None:
+        logger.warning("Dragon chat requested by unknown chat | chat_id=%s", chat_id)
+        await update.message.reply_text(USER_UNREGISTERED, **DEFAULT_REPLY_MARKUP)
+        return END
+
+    dragon_id = cur_user.dragon_id
 
     dragon = session.query(User).filter(User.id == dragon_id).first()
 
     if dragon is None:
+        logger.warning("Dragon chat requested but no dragon assigned | user_id=%s chat_id=%s", cur_user.id, chat_id)
         await update.message.reply_text(USER_NO_DRAGON, **DEFAULT_REPLY_MARKUP)
         return END
     elif not dragon.registered:
+        logger.info(
+            "Dragon chat requested but dragon is unregistered | user_id=%s dragon_id=%s chat_id=%s",
+            cur_user.id,
+            dragon.id,
+            chat_id,
+        )
         await update.message.reply_text(
             USER_UNREGISTERED_DRAGON, **DEFAULT_REPLY_MARKUP)
         return END
@@ -238,45 +413,91 @@ async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, sessio
     user_db = session.query(User).filter(User.chat_id == chat_id).first()
 
     if user_db and user_db.is_admin:
+        logger.info("Admin mode started | user_id=%s chat_id=%s", user_db.id, chat_id)
         await update.message.reply_text(ADMIN_GREETING, **REMOVE_REPLY_MARKUP)
         return ADMIN_CHAT
 
+    logger.warning(
+        "Admin mode rejected | chat_id=%s user_id=%s is_registered=%s",
+        chat_id,
+        user_db.id if user_db else None,
+        user_db is not None,
+    )
     await update.message.reply_text(UNKNOWN_COMMAND)
     return END
 
 
 async def send_message_to_dragon(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
-    dragon_id = session.query(User).filter(
-        User.chat_id == chat_id).first().dragon_id
+    cur_user = session.query(User).filter(User.chat_id == chat_id).first()
+
+    if cur_user is None:
+        logger.warning("Message to dragon rejected because sender is unknown | chat_id=%s", chat_id)
+        await update.message.reply_text(USER_UNREGISTERED, **DEFAULT_REPLY_MARKUP)
+        return END
+
+    dragon_id = cur_user.dragon_id
 
     dragon = session.query(User).filter(User.id == dragon_id).first()
 
     if not is_message_private(update.message):
+        logger.warning(
+            "Message to dragon rejected as non-private media | user_id=%s chat_id=%s message_id=%s message_type=%s",
+            cur_user.id,
+            chat_id,
+            update.message.message_id,
+            _get_message_type(update.message),
+        )
         await update.message.reply_text(NON_PRIVATE_MESSAGE, reply_to_message_id=update.message.message_id, **REMOVE_REPLY_MARKUP)
         return DRAGON_CHAT
 
     if dragon is not None:
+        logger.info(
+            "Forwarding message to dragon | sender_id=%s receiver_id=%s sender_chat_id=%s receiver_chat_id=%s message_id=%s message_type=%s",
+            cur_user.id,
+            dragon.id,
+            chat_id,
+            dragon.chat_id,
+            update.message.message_id,
+            _get_message_type(update.message),
+        )
         await forward_message(update.message, dragon.chat_id,
                         context.bot, session, message_from=Role.TRAINER)
         return DRAGON_CHAT
     else:
+        logger.warning("Message to dragon failed because no dragon user exists | user_id=%s chat_id=%s", cur_user.id, chat_id)
         await update.message.reply_text(CONNECTION_ERROR, **REMOVE_REPLY_MARKUP)
         return END
 
 
 async def send_message_to_trainer(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
-    cur_user_id = session.query(User).filter(
-        User.chat_id == chat_id).first().id
+    cur_user = session.query(User).filter(User.chat_id == chat_id).first()
+
+    if cur_user is None:
+        logger.warning("Message to trainer rejected because sender is unknown | chat_id=%s", chat_id)
+        await update.message.reply_text(USER_UNREGISTERED, **DEFAULT_REPLY_MARKUP)
+        return END
+
+    cur_user_id = cur_user.id
 
     trainer = session.query(User).filter(User.dragon_id == cur_user_id).first()
 
     if trainer is not None:
+        logger.info(
+            "Forwarding message to trainer | sender_id=%s receiver_id=%s sender_chat_id=%s receiver_chat_id=%s message_id=%s message_type=%s",
+            cur_user.id,
+            trainer.id,
+            chat_id,
+            trainer.chat_id,
+            update.message.message_id,
+            _get_message_type(update.message),
+        )
         await forward_message(update.message, trainer.chat_id,
                         context.bot, session, message_from=Role.DRAGON)
         return TRAINER_CHAT
     else:
+        logger.warning("Message to trainer failed because no trainer user exists | user_id=%s chat_id=%s", cur_user.id, chat_id)
         await update.message.reply_text(CONNECTION_ERROR, **REMOVE_REPLY_MARKUP)
         return END
 
@@ -296,10 +517,24 @@ async def send_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session
     chat_id = update.message.chat_id
     user_db = session.query(User).filter(User.chat_id == chat_id).first()
 
-    if not user_db.is_admin:
+    if user_db is None or not user_db.is_admin:
+        logger.warning(
+            "Admin broadcast rejected | chat_id=%s user_id=%s is_admin=%s",
+            chat_id,
+            user_db.id if user_db else None,
+            user_db.is_admin if user_db else False,
+        )
         return END
 
     all_users = session.query(User).filter(User.registered == True).all()
+    logger.info(
+        "Admin broadcast started | admin_user_id=%s chat_id=%s recipients=%s message_id=%s message_type=%s",
+        user_db.id,
+        chat_id,
+        max(len(all_users) - 1, 0),
+        update.message.message_id,
+        _get_message_type(update.message),
+    )
 
     for to_send_user in all_users:
         if to_send_user.id != user_db.id:
@@ -334,11 +569,13 @@ def handle_reply_message(current_mode):
 
 @db_session
 async def handle_edited_message(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    logger.info("Edited message received | update=%s", get_update_log_context(update))
     await edit_message(update, context, session)
 
 
 @db_session
 async def handle_delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    logger.info("Delete message requested | update=%s", get_update_log_context(update))
     await delete_message_reply(update.message, context.bot, session)
 
 
@@ -364,6 +601,7 @@ async def handle_delete_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def unsupported_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.warning("Unsupported media received | update=%s", get_update_log_context(update))
     await update.message.reply_text(
         UNSUPPORTED_MEDIA, reply_to_message_id=update.message.message_id, **REMOVE_REPLY_MARKUP)
 
@@ -390,8 +628,16 @@ def done_chat(target):
 
 
 async def _error(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(context.error)
-    logger.error(traceback.print_tb(context.error.__traceback__))
+    exc_info = None
+    if context.error is not None:
+        exc_info = (type(context.error), context.error, context.error.__traceback__)
+
+    logger.error(
+        "Unhandled Telegram application error | update=%s error=%s",
+        get_update_log_context(update),
+        context.error,
+        exc_info=exc_info,
+    )
 
 
 def main():

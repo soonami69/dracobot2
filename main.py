@@ -6,7 +6,7 @@ import time
 from html import escape
 
 from dotenv import load_dotenv
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import scoped_session
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (Application, CommandHandler, ContextTypes,
@@ -18,6 +18,7 @@ from dracobot2.config import SessionLocal
 from dracobot2.models import Role, User
 from dracobot2.resources import *
 from dracobot2.utils import *
+from dracobot2.utils.handles import normalize_telegram_handle
 from dracobot2.utils.msg_private import is_message_private
 from dracobot2.utils.timezone import TIMEZONE
 
@@ -178,9 +179,13 @@ def db_session(method):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     user = update.message.from_user
+    normalized_username = normalize_telegram_handle(user.username)
 
-    user_db = session.query(User).filter(
-        or_(User.tele_handle == user.username, User.chat_id == chat_id)).first()
+    user_filters = [User.chat_id == chat_id]
+    if normalized_username is not None:
+        user_filters.append(func.lower(User.tele_handle) == normalized_username)
+
+    user_db = session.query(User).filter(or_(*user_filters)).first()
 
     if user_db is not None:
         is_new_user = not user_db.registered
@@ -190,7 +195,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
         if not user_db.registered:
             user_db.registered = True
 
-        user_db.tele_handle = user.username
+        if normalized_username is not None:
+            if user_db.tele_handle != normalized_username:
+                logger.info(
+                    "Normalizing Telegram handle casing | user_id=%s old_handle=@%s new_handle=@%s",
+                    user_db.id,
+                    user_db.tele_handle,
+                    normalized_username,
+                )
+            user_db.tele_handle = normalized_username
         user_db.tele_name = user.first_name
 
         first_name = user.first_name

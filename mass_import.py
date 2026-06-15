@@ -3,6 +3,7 @@ import csv
 import random
 from dracobot2.config import SessionLocal
 from dracobot2.models import User, UserDetails
+from dracobot2.utils.handles import normalize_telegram_handle
 
 session = SessionLocal()
 
@@ -53,7 +54,9 @@ with open(filename, "r", newline='') as f:
     def get_row_info(cur_row):
         index = int(cur_row[0])
         name = cur_row[1]
-        handle = cur_row[2]
+        handle = normalize_telegram_handle(cur_row[2])
+        if handle is None:
+            raise ValueError(f"Missing telegram handle for row index {index}")
         likes = cur_row[3]
         dislikes = cur_row[4]
         room_number = cur_row[5]

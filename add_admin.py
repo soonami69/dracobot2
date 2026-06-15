@@ -2,25 +2,27 @@ import argparse
 import sys
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 
 from dracobot2.config import SessionLocal
 from dracobot2.models import User
-
-
-def normalize_handle(handle):
-    return handle.strip().lstrip("@")
+from dracobot2.utils.handles import normalize_telegram_handle
 
 
 def add_admin(handle):
     session = SessionLocal()
 
     try:
-        normalized_handle = normalize_handle(handle)
+        normalized_handle = normalize_telegram_handle(handle)
         if not normalized_handle:
             raise ValueError("Telegram handle cannot be empty.")
 
-        existing_user = session.query(User).filter(User.tele_handle == normalized_handle).first()
+        existing_user = session.query(User).filter(func.lower(User.tele_handle) == normalized_handle).first()
         if existing_user is not None:
+            handle_was_normalized = existing_user.tele_handle != normalized_handle
+            if handle_was_normalized:
+                existing_user.tele_handle = normalized_handle
+
             if not existing_user.is_admin:
                 existing_user.is_admin = True
                 session.commit()
@@ -30,6 +32,9 @@ def add_admin(handle):
                     f"registered={existing_user.registered}"
                 )
                 return 0
+
+            if handle_was_normalized:
+                session.commit()
 
             print(
                 "Admin already exists: "

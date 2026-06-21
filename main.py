@@ -175,6 +175,88 @@ def db_session(method):
     return db_session_decorator
 
 
+def get_user_for_update(session, update):
+    chat = update.effective_chat
+    user = update.effective_user
+    normalized_username = normalize_telegram_handle(user.username) if user else None
+
+    user_filters = []
+    if chat is not None:
+        user_filters.append(User.chat_id == chat.id)
+    if normalized_username is not None:
+        user_filters.append(func.lower(User.tele_handle) == normalized_username)
+
+    if not user_filters:
+        return None
+
+    return session.query(User).filter(or_(*user_filters)).first()
+
+
+def format_registration_user(user):
+    handle = f"@{user.tele_handle}" if user.tele_handle else "(no handle)"
+    name = user.details.name if user.details and user.details.name else user.tele_name
+    name_text = f" - {name}" if name else ""
+    chat_text = "" if user.chat_id else " [no chat_id]"
+    admin_text = " [admin]" if user.is_admin else ""
+    return f"- {handle}{name_text} (id={user.id}){chat_text}{admin_text}"
+
+
+def format_registration_report(users):
+    registered_users = [user for user in users if user.registered]
+    unregistered_users = [user for user in users if not user.registered]
+    missing_chat_users = [user for user in users if user.chat_id is None]
+
+    lines = [
+        "Registration Report",
+        "",
+        f"Total users: {len(users)}",
+        f"Registered: {len(registered_users)}",
+        f"Unregistered: {len(unregistered_users)}",
+        f"Missing chat_id: {len(missing_chat_users)}",
+    ]
+
+    if registered_users:
+        lines.extend(["", "Registered users:"])
+        lines.extend(format_registration_user(user) for user in registered_users)
+
+    if unregistered_users:
+        lines.extend(["", "Unregistered users:"])
+        lines.extend(format_registration_user(user) for user in unregistered_users)
+
+    if missing_chat_users:
+        lines.extend(["", "Users missing chat_id:"])
+        lines.extend(format_registration_user(user) for user in missing_chat_users)
+
+    if not users:
+        lines.extend(["", "No users found."])
+
+    return "\n".join(lines)
+
+
+async def send_registration_report(update, session):
+    admin_user = get_user_for_update(session, update)
+
+    if admin_user is None or not admin_user.is_admin:
+        logger.warning(
+            "Registration report rejected | update=%s admin_user_id=%s",
+            get_update_log_context(update),
+            admin_user.id if admin_user else None,
+        )
+        await update.message.reply_text(UNKNOWN_COMMAND, **DEFAULT_REPLY_MARKUP)
+        return
+
+    users = session.query(User).order_by(User.id).all()
+    report = format_registration_report(users)
+    logger.info(
+        "Registration report requested | admin_user_id=%s chat_id=%s total_users=%s registered=%s",
+        admin_user.id,
+        update.message.chat_id,
+        len(users),
+        sum(1 for user in users if user.registered),
+    )
+    await reply_long_text(update.message, report, **DEFAULT_REPLY_MARKUP)
+
+
 @db_session
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
@@ -266,26 +348,54 @@ async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN
 
 
-@db_session
-async def helps(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+async def send_help(update, session):
     user = update.message.from_user
     chat_id = update.message.chat_id
 
-    user_db = session.query(User).filter(User.chat_id == chat_id).first()
+    user_db = get_user_for_update(session, update)
 
     if user_db is None:
         logger.warning("Help requested by unknown chat | chat_id=%s user_id=%s username=%s", chat_id, user.id, user.username)
         await update.message.reply_text(USER_UNREGISTERED)
-        return UNREGISTERED
+        return False
 
     first_name = user.first_name
     if user_db.details:
         first_name = user_db.details.name
 
-    await update.message.reply_text(HELP_MESSAGE.format(
-        escape(first_name or "")), parse_mode=telegram.constants.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
+    help_message = HELP_MESSAGE.format(escape(first_name or ""))
+    if user_db.is_admin:
+        help_message += ADMIN_HELP_MESSAGE
+
+    await update.message.reply_text(help_message, parse_mode=telegram.constants.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
+    return True
+
+
+@db_session
+async def helps(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    is_registered_user = await send_help(update, session)
+    if not is_registered_user:
+        return UNREGISTERED
 
     return MAIN
+
+
+@db_session
+async def helps_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    await send_help(update, session)
+    return ADMIN_CHAT
+
+
+@db_session
+async def registrations(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    await send_registration_report(update, session)
+    return MAIN
+
+
+@db_session
+async def registrations_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    await send_registration_report(update, session)
+    return ADMIN_CHAT
 
 
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -423,9 +533,23 @@ async def check_dragon(update: Update, context: ContextTypes.DEFAULT_TYPE, sessi
 @db_session
 async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
-    user_db = session.query(User).filter(User.chat_id == chat_id).first()
+    user = update.message.from_user
+    normalized_username = normalize_telegram_handle(user.username)
+
+    user_filters = [User.chat_id == chat_id]
+    if normalized_username is not None:
+        user_filters.append(func.lower(User.tele_handle) == normalized_username)
+
+    user_db = session.query(User).filter(or_(*user_filters)).first()
 
     if user_db and user_db.is_admin:
+        if user_db.chat_id != chat_id:
+            user_db.chat_id = chat_id
+        if normalized_username is not None:
+            user_db.tele_handle = normalized_username
+        user_db.tele_name = user.first_name
+        session.commit()
+
         logger.info("Admin mode started | user_id=%s chat_id=%s", user_db.id, chat_id)
         await update.message.reply_text(ADMIN_GREETING, **REMOVE_REPLY_MARKUP)
         return ADMIN_CHAT
@@ -716,10 +840,12 @@ def main():
             ADMIN_CHAT: [MessageHandler(filters.UpdateType.EDITED_MESSAGE,
                                         handle_edited_message),
                          CommandHandler(DONE_KEY, done_chat(ADMIN_KEY)),
-                         CommandHandler(DELETE_KEY, handle_delete_admin, block=False),
+                         CommandHandler(DELETE_KEY, handle_delete_admin),
+                         CommandHandler(HELP_COMMAND_KEY, helps_admin),
+                         CommandHandler(REGISTRATIONS_COMMAND_KEY, registrations_admin),
+                         MessageHandler(SUPPORTED_MESSAGE_FILTERS, send_admin),
                          MessageHandler(
                              filters.COMMAND | COMMAND_FILTER_REGEX, handle_unknown_message_chat(ADMIN_KEY)),
-                         MessageHandler(SUPPORTED_MESSAGE_FILTERS, send_admin, block=False),
                          MessageHandler(UNSUPPORTED_MESSAGE_FILTERS, unsupported_media)],
 
             TIMEOUT: [MessageHandler(
@@ -751,6 +877,7 @@ def main():
                    CommandHandler(DELETE_KEY, handle_delete_message),
                    CommandHandler(ABOUT_COMMAND_KEY, about),
                    CommandHandler(HELP_COMMAND_KEY, helps),
+                   CommandHandler(REGISTRATIONS_COMMAND_KEY, registrations),
                    CommandHandler(RULES_COMMAND_KEY, rules),
                    CommandHandler(STATUS_COMMAND_KEY, status),
                    MessageHandler(get_filter_complete_match(ABOUT_THE_BOT_KEY), about),

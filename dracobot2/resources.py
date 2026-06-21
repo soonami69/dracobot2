@@ -46,6 +46,7 @@ HELP_KEY = u"Help" + " " + HELP_EMOJI
 RULES_KEY = u"Rules" + " " + MONKEY_EMOJI
 ABOUT_COMMAND_KEY = u"about"
 HELP_COMMAND_KEY = u"help"
+REGISTRATIONS_COMMAND_KEY = u"registrations"
 RULES_COMMAND_KEY = u"rules"
 STATUS_COMMAND_KEY = u"status"
 MENU_KEY = u"menu"
@@ -82,6 +83,11 @@ HELP_MESSAGE = "Hello there, {}!\n\n" +\
     "4. <b>Media files</b>: Supported files are <i>audio</i>, <i>document</i>, <i><b>photo</b></i>, <i><b>sticker</b></i>, <i>videos</i>, <i>video note</i> and <i>voice</i>\n\n" +\
     "Please message @dlau98 @pinkykok if you need technical assistance!\n" +\
     "Thank you and we hope you'll have fun throughout this game! :)"
+ADMIN_HELP_MESSAGE = "\n\n<u>Admin Commands</u>\n" +\
+    "/" + ADMIN_KEY + ": Enter admin broadcast mode\n" +\
+    "/" + REGISTRATIONS_COMMAND_KEY + ": Check who is registered and unregistered\n" +\
+    "/" + DELETE_KEY + ": Delete a forwarded message by replying to it\n" +\
+    "/" + DONE_KEY + ": Exit the current admin/chat mode"
 GAME_RULES_MESSAGE = "Rules of Angel and Mortal " + DRAGON_EMOJI + "\n\n" +\
     "Each of you who participated will be assigned a Angel and a Mortal. " +\
     "Of course, you will know the identity of your Mortal while your Angel's identity will be kept " +\
